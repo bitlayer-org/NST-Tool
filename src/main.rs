@@ -38,6 +38,10 @@ struct Args {
     /// Script size in kilobytes (e.g., 500 for 500KB)
     #[arg(short, long, default_value_t = 500)]
     script_size_kb: u64,
+
+    /// Name of Bitcoin RPC
+    #[arg(short, long, default_value = "sendnsttransaction")]
+    rpc_name: String,
 }
 
 fn main() {
@@ -171,14 +175,18 @@ fn main() {
     }
 
     // Send the transaction using the `sendnsttransaction` RPC call.
-    let txid_res = btc_client.call::<bitcoin::Txid>("sendnsttransaction", &[tx.raw_hex().into()]);
+    let txid_res = btc_client.call::<bitcoin::Txid>(&args.rpc_name, &[tx.raw_hex().into()]);
     match txid_res {
         Ok(txid) => {
-            info!("Transaction sent: {} by sendnsttransaction, this transaction is a non-standard transaction", txid);
+            info!(
+                "Transaction sent: {} by {}, this transaction is a non-standard transaction",
+                txid, args.rpc_name
+            );
         }
         Err(e_) => {
             error!(
-                "Error sending transaction by sendnsttransaction: {:?}, txid: {}",
+                "Error sending transaction by {}: {:?}, txid: {}",
+                args.rpc_name,
                 e_,
                 tx.txid()
             );
