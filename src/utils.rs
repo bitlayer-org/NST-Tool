@@ -1,27 +1,13 @@
 use bitcoin::{
-    absolute,
-    blockdata::{
-        script::{Builder, Script},
-        transaction::{OutPoint, Transaction, TxOut},
-    },
-    hashes::{sha256, Hash},
+    blockdata::transaction::OutPoint,
     key::{rand::rngs::OsRng, Keypair, PrivateKey, PublicKey},
-    network::Network,
     script::ScriptBuf,
-    secp256k1::{self, All, Message, Secp256k1, SecretKey, XOnlyPublicKey},
-    sighash::{Prevouts, SighashCache, TapSighash, TapSighashType},
-    taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
-    Address, Amount, EcdsaSighashType, SegwitV0Sighash, TapLeafHash,
+    secp256k1::{All, Message, Secp256k1, SecretKey, XOnlyPublicKey},
+    sighash::TapSighash,
+    taproot::{TaprootBuilder, TaprootSpendInfo},
+    Address, Amount, EcdsaSighashType, SegwitV0Sighash,
 };
-use bitcoincore_rpc::{
-    jsonrpc::{self, simple_http},
-    Auth, Client, RpcApi,
-};
-use clap::Parser;
-use log::{debug, error, info, warn};
 use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
 
 pub const NETWORK: bitcoin::Network = bitcoin::Network::Regtest;
 

@@ -3,24 +3,18 @@ mod utils;
 use bitcoin::{
     absolute,
     blockdata::{
-        script::{Builder, Script},
+        script::Builder,
         transaction::{OutPoint, Transaction, TxOut},
     },
-    hashes::{sha256, Hash},
-    network::Network,
-    secp256k1::{Secp256k1, SecretKey},
-    sighash::{Prevouts, SighashCache, TapSighashType},
-    taproot::LeafVersion,
-    Address, Amount, ScriptBuf, TapLeafHash,
+    sighash::SighashCache,
+    taproot::LeafVersion, Amount, TapLeafHash,
 };
 use bitcoincore_rpc::{
-    bitcoin::key::rand,
     jsonrpc::{self, simple_http},
     Auth, Client, RpcApi,
 };
 use clap::Parser;
-use log::{debug, error, info, warn};
-use rand::rngs::OsRng;
+use log::{debug, error, info};
 use std::time::Duration;
 use utils::*;
 
