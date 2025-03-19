@@ -13,8 +13,9 @@ This tool performs the following steps to verify the availability of the non-sta
 1.  **Create a Large-Script Address:** Generates a Bitcoin address with a significant script size.
 2.  **Send Funds:** Sends 1,000,000 satoshis (sats) to the generated address using RPC.
 3.  **Consume with a Non-Standard Transaction:**
-    - Attempts to consume the funds from the address using `sendrawtransaction`, which is expected to fail due to the transaction being non-standard.
-    - Attempts to consume the same funds using `sendnsttransaction`, which is expected to succeed.
+
+- Attempts to consume the funds from the address using `sendrawtransaction`, which is expected to fail due to the transaction being non-standard.
+- Attempts to consume the same funds using `sendnsttransaction`, which is expected to succeed.
 
 ## Usage
 
@@ -31,14 +32,14 @@ This tool performs the following steps to verify the availability of the non-sta
 - Navigate to the directory: `cd NST-Tool`
 - Run the test: `cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin`
 
-, or
+**or**
 
 - Download the release binary `wget https://github.com/bitlayer-org/NST-Tool/releases/download/v0.1/nst-tool && chmod +x nst-tool`
 - Run the test: `./nst-tool --endpoint http://127.0.0.1:18443 --user admin --password admin`
 
 3.  **Stop Nework:**
 
-    - Use `pkill bitcoin` to stop network.
+- Use `pkill bitcoin` to stop network.
 
 ### Command-Line Options
 
