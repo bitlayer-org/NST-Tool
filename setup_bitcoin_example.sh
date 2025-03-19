@@ -6,10 +6,11 @@ data_dir="./playground/bitcoin_data"
 
 echo "Kill bitcoin process ..."
 pkill bitcoind
+pkill bitcoind
 
 echo "Start bitcoin ..."
 mkdir -p $data_dir 
-start_bitcoin_command="./playground/bin/bitcoind -datadir=$data_dir -server -listen=1 -regtest -rpcuser=admin -rpcpassword=admin -daemon"
+start_bitcoin_command="./playground/bin/bitcoind -datadir=$data_dir -server -listen=1 -regtest -fallbackfee=0.001 -rpcuser=admin -rpcpassword=admin -daemon"
 echo "Execute $start_bitcoin_command"
 /bin/bash -c "$start_bitcoin_command"
 
@@ -39,6 +40,10 @@ address_command="./playground/bin/bitcoin-cli -chain=regtest -datadir=$data_dir 
 echo "Execute $address_command"
 address=`/bin/bash -c "$address_command"`
 
+init_generate_command="./playground/bin/bitcoin-cli -chain=regtest -datadir=$data_dir -rpcuser=admin -rpcpassword=admin generatetoaddress 100 $address"
+echo "Execute $init_generate_command"
+
+eval $init_generate_command
 generate_command="./playground/bin/bitcoin-cli -chain=regtest -datadir=$data_dir -rpcuser=admin -rpcpassword=admin generatetoaddress 1 $address"
 echo "Execute $generate_command"
 

@@ -12,10 +12,10 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{
     jsonrpc::{self, simple_http},
-    Auth, Client, RpcApi,
+    Auth, Client, RawTx as _, RpcApi,
 };
 use clap::Parser;
-use log::{debug, error, info, LevelFilter};
+use log::{debug, error, info, warn, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::time::Duration;
 use utils::*;
@@ -154,13 +154,34 @@ fn main() {
     let block_count = 1;
     let _ = btc_client.generate_to_address(block_count as u64, &alice.address);
     info!("send tx {}", tx.txid());
-    let txid_res = btc_client.send_raw_transaction(&tx);
+
+    // Send the transaction using the `sendrawtransaction` RPC call.
+    let txid_res = btc_client.call::<bitcoin::Txid>("sendrawtransaction", &[tx.raw_hex().into()]);
     match txid_res {
         Ok(txid) => {
-            info!("Transaction sent: {}", txid);
+            warn!("Transaction sent: {} by sendrawtransaction, this transaction is not a non-standard transaction", txid);
         }
         Err(e_) => {
-            error!("Error sending transaction: {:?}, txid: {}", e_, tx.txid());
+            info!(
+                "Error sending transaction by sendrawtransaction: {:?}, txid: {}",
+                e_,
+                tx.txid()
+            );
+        }
+    }
+
+    // Send the transaction using the `sendnsttransaction` RPC call.
+    let txid_res = btc_client.call::<bitcoin::Txid>("sendnsttransaction", &[tx.raw_hex().into()]);
+    match txid_res {
+        Ok(txid) => {
+            info!("Transaction sent: {} by sendnsttransaction, this transaction is a non-standard transaction", txid);
+        }
+        Err(e_) => {
+            error!(
+                "Error sending transaction by sendnsttransaction: {:?}, txid: {}",
+                e_,
+                tx.txid()
+            );
             std::process::exit(1);
         }
     }
