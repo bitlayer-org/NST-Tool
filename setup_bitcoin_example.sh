@@ -1,6 +1,28 @@
-# todo: download bitcoin and run it automatically
+BITCOIN_SOURCE_URL=""
+BITCOIN_SOURCE_BRANCH=""
 
-# cp bitcoind and bitcoincli to /playground
+if [ -f "./playground/bin/bitcoind" ] && [ -f "./playground/bin/bitcoin-cli" ]; then
+    echo "Bitcoin already built. Skip building."
+else 
+    echo "Bitcoin not built. Building ..."
+    # download bitcoin source and build
+    mkdir -p ./playground/
+    pushd playground
+    git clone $BITCOIN_SOURCE_URL bitcoin 
+    git checkout $BITCOIN_SOURCE_BRANCH
+    pushd bitcoin
+    cmake -B build
+    pushd build
+    make -j4 all
+    popd
+    popd
+    popd
+
+    # cp bitcoind and bitcoincli to playground
+    mkdir -p ./playground/bin
+    cp ./playground/bitcoin/build/bin/bitcoind ./playground/bin/
+    cp ./playground/bitcoin/build/bin/bitcoin-cli ./playground/bin/
+fi
 
 data_dir="./playground/bitcoin_data"
 
