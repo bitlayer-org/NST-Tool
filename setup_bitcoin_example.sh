@@ -1,5 +1,5 @@
-BITCOIN_SOURCE_URL=""
-BITCOIN_SOURCE_BRANCH=""
+BITCOIN_SOURCE_URL="https://github.com/bitlayer-org/bitcoin.git"
+BITCOIN_SOURCE_BRANCH="nst_api"
 
 if [ -f "./playground/bin/bitcoind" ] && [ -f "./playground/bin/bitcoin-cli" ]; then
     echo "Bitcoin already built. Skip building."
