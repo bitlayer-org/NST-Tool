@@ -28,7 +28,7 @@ pub fn build_taptree_with_script(scripts: Vec<ScriptBuf>) -> TaprootInfo {
     )
     .unwrap();
     let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(1, scripts[0].clone())
+        .add_leaf(0, scripts[0].clone())
         .expect("unable to add leaf")
         .finalize(&Secp256k1::new(), internal_key)
         .expect("unable to finalize");
@@ -51,13 +51,13 @@ pub fn generate_default_tx_in(input: &Input) -> bitcoin::TxIn {
 
 pub struct Input {
     pub outpoint: OutPoint,
-    pub amount: Amount,
+    pub _amount: Amount,
 }
 
 pub struct SignerInfo {
     pub secp: Secp256k1<All>,
-    pub pk: PublicKey,
-    pub sk: SecretKey,
+    pub _pk: PublicKey,
+    pub _sk: SecretKey,
     pub keypair: Keypair,
     pub address: Address,
 }
@@ -76,9 +76,9 @@ impl SignerInfo {
         let pubkey = PublicKey::from_private_key(&secp, &private_key);
         let address = Address::p2wpkh(&pubkey, bitcoin::Network::Regtest).unwrap();
         SignerInfo {
-            pk: private_key.public_key(&secp),
+            _pk: private_key.public_key(&secp),
             secp,
-            sk,
+            _sk: sk,
             keypair,
             address,
         }
@@ -91,20 +91,20 @@ impl SignerInfo {
         Self::generate_signer_info(sk, secp)
     }
 
-    pub fn load_from_hex(seckey_hex: String) -> Self {
+    pub fn _load_from_hex(seckey_hex: String) -> Self {
         let secp: Secp256k1<All> = Secp256k1::new();
         let sk = SecretKey::from_str(&seckey_hex).unwrap();
 
         Self::generate_signer_info(sk, secp)
     }
 
-    pub fn save(_: String) {}
+    pub fn _save(_: String) {}
 }
 
 impl SignerInfo {
-    pub fn sign_ecdsa(&self, hash: SegwitV0Sighash, sign_type: EcdsaSighashType) -> Vec<u8> {
+    pub fn _sign_ecdsa(&self, hash: SegwitV0Sighash, sign_type: EcdsaSighashType) -> Vec<u8> {
         let msg = Message::from_digest_slice(&hash[..]).expect("should be SegwitV0Sighash");
-        let signature = self.secp.sign_ecdsa(&msg, &self.sk);
+        let signature = self.secp.sign_ecdsa(&msg, &self._sk);
         let mut vec = signature.serialize_der().to_vec();
         vec.push(sign_type.to_u32() as u8);
         vec
@@ -116,11 +116,11 @@ impl SignerInfo {
         signature.serialize().to_vec()
     }
 
-    pub fn get_address(&self) -> Address {
+    pub fn _get_address(&self) -> Address {
         self.address.clone()
     }
 
-    pub fn get_pk(&self) -> Vec<u8> {
-        self.pk.to_bytes().clone()
+    pub fn _get_pk(&self) -> Vec<u8> {
+        self._pk.to_bytes().clone()
     }
 }

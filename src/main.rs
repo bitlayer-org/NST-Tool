@@ -7,23 +7,25 @@ use bitcoin::{
         transaction::{OutPoint, Transaction, TxOut},
     },
     sighash::SighashCache,
-    taproot::LeafVersion, Amount, TapLeafHash,
+    taproot::LeafVersion,
+    Amount, TapLeafHash,
 };
 use bitcoincore_rpc::{
     jsonrpc::{self, simple_http},
     Auth, Client, RpcApi,
 };
 use clap::Parser;
-use log::{debug, error, info};
+use log::{debug, error, info, LevelFilter};
+use simple_logger::SimpleLogger;
 use std::time::Duration;
 use utils::*;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Bitcoin Core RPC URL (e.g., 192.168.0.103:18443)
+    /// Bitcoin Core RPC URL (e.g., http://127.0.0.1:18443)
     #[arg(short, long)]
-    url: String,
+    endpoint: String,
 
     /// Bitcoin Core RPC username
     #[arg(short, long)]
@@ -39,10 +41,15 @@ struct Args {
 }
 
 fn main() {
-    env_logger::init();
+    // Initialize the logger with the INFO level filter.
+    SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .init()
+        .unwrap();
+
     let args = Args::parse();
 
-    let url = &args.url;
+    let url = &args.endpoint;
     let user = &args.user;
     let password = &args.password;
     let script_size_kb = args.script_size_kb;
@@ -67,7 +74,7 @@ fn main() {
     }
 
     let script_bytes = script.into_script();
-    info!("byte size {}", script_bytes.as_bytes().len());
+    info!("the byte size of script {}", script_bytes.as_bytes().len());
     let tapinfo = create_taproot_address(vec![script_bytes]);
 
     let txid = rpc
@@ -91,7 +98,7 @@ fn main() {
             txid,
             vout: tx_result.details[0].vout,
         },
-        amount: Amount::from_sat(amount),
+        _amount: Amount::from_sat(amount),
     };
 
     let output = TxOut {
