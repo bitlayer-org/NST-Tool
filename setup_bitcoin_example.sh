@@ -9,8 +9,8 @@ else
     mkdir -p ./playground/
     pushd playground
     git clone $BITCOIN_SOURCE_URL bitcoin 
-    git checkout $BITCOIN_SOURCE_BRANCH
     pushd bitcoin
+    git checkout $BITCOIN_SOURCE_BRANCH
     cmake -B build
     pushd build
     make -j4 all

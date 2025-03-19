@@ -23,12 +23,17 @@ This tool performs the following steps to verify the availability of the non-sta
 1.  **Start a Local Regtest Network (Optional):**
 
     - If you don't have an existing Bitcoin regtest network, you can run the `./setup_bitcoin_example.sh` script to start one.
-    - This regtest network has added a `sendnsttransaction` RPC.
+    - `./setup_bitcoin_example.sh` will download our example modification of Bitcoin core, build and run, so this regtest network has added a `sendnsttransaction` RPC.
 
 2.  **Run the Testing Tool:**
+
     - Clone the repository: `git clone git@github.com:bitlayer-org/NST-Tool.git`
     - Navigate to the directory: `cd NST-Tool`
     - Run the test: `cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin`
+
+3.  **Stop Nework:**
+
+    - Use `pkill bitcoin` to stop network.
 
 ### Command-Line Options
 
@@ -50,6 +55,15 @@ Options:
           Print help
   -V, --version
           Print version
+```
+
+Examples:
+
+```
+# test 1MB bytes transaction
+cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin --script-size-kb 1000
+# test `nonstdtx` RPC
+cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin --rpc-name nonstdtx
 ```
 
 ## License
