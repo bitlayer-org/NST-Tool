@@ -15,7 +15,7 @@ use bitcoincore_rpc::{
     Auth, Client, RawTx as _, RpcApi,
 };
 use clap::Parser;
-use log::{debug, error, info, warn, LevelFilter};
+use log::{error, info, warn, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::time::Duration;
 use utils::*;
@@ -69,6 +69,7 @@ fn main() {
     let amount = 10000000 as u64;
     let alice = SignerInfo::new();
 
+    // generate a script with the given size
     let mut script = Builder::new();
     let script_size = script_size_kb * 1024;
     for _ in 0..script_size / 2 {
@@ -81,6 +82,7 @@ fn main() {
     info!("the byte size of script {}", script_bytes.as_bytes().len());
     let tapinfo = create_taproot_address(vec![script_bytes]);
 
+    // send to the taproot address
     let txid = rpc
         .send_to_address(
             &tapinfo.address,
@@ -95,8 +97,9 @@ fn main() {
         .expect("send tx failed");
 
     let tx_result = rpc.get_transaction(&txid, None).expect("error");
-    debug!("deposit tx detail {:?}", tx_result.details);
+    info!("txid of deposit transaction {:?}", tx_result.details);
 
+    // create a transaction to spend the deposit
     let input = Input {
         outpoint: OutPoint {
             txid,
@@ -107,7 +110,7 @@ fn main() {
 
     let output = TxOut {
         value: Amount::from_sat(amount - FEE_AMOUNT),
-        script_pubkey: alice.address.script_pubkey(),
+        script_pubkey: alice.address().script_pubkey(),
     };
 
     let mut tx = Transaction {
@@ -117,6 +120,7 @@ fn main() {
         output: vec![output],
     };
 
+    // sign the transaction
     let mut sig_hash_cache = SighashCache::new(&tx);
     let sighash = sig_hash_cache
         .taproot_script_spend_signature_hash(
@@ -146,6 +150,7 @@ fn main() {
     tx.input[0].witness.push(tapinfo.scripts[0].clone());
     tx.input[0].witness.push(&spend_control_block.serialize());
 
+    // send the transaction
     let mut builder = simple_http::Builder::new()
         .url(url)
         .expect("invalid rpc info");
@@ -156,7 +161,7 @@ fn main() {
     let btc_client = Client::from_jsonrpc(transport);
 
     let block_count = 1;
-    let _ = btc_client.generate_to_address(block_count as u64, &alice.address);
+    let _ = btc_client.generate_to_address(block_count as u64, &alice.address());
     info!("send tx {}", tx.txid());
 
     // Send the transaction using the `sendrawtransaction` RPC call.

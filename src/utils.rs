@@ -5,12 +5,14 @@ use bitcoin::{
     secp256k1::{All, Message, Secp256k1, SecretKey, XOnlyPublicKey},
     sighash::TapSighash,
     taproot::{TaprootBuilder, TaprootSpendInfo},
-    Address, Amount, EcdsaSighashType, SegwitV0Sighash,
+    Address, Amount,
 };
 use std::str::FromStr;
 
+/// Bitcoin network
 pub const NETWORK: bitcoin::Network = bitcoin::Network::Regtest;
 
+/// Taproot information
 #[derive(Clone)]
 pub struct TaprootInfo {
     pub address: Address,
@@ -18,10 +20,12 @@ pub struct TaprootInfo {
     pub taproot_spend_info: TaprootSpendInfo,
 }
 
+/// Create a taproot address
 pub fn create_taproot_address(scripts: Vec<ScriptBuf>) -> TaprootInfo {
     build_taptree_with_script(scripts)
 }
 
+/// Build a taproot tree with a script
 pub fn build_taptree_with_script(scripts: Vec<ScriptBuf>) -> TaprootInfo {
     let internal_key = XOnlyPublicKey::from_str(
         "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
@@ -40,6 +44,7 @@ pub fn build_taptree_with_script(scripts: Vec<ScriptBuf>) -> TaprootInfo {
     }
 }
 
+/// Generate a default transaction input
 pub fn generate_default_tx_in(input: &Input) -> bitcoin::TxIn {
     bitcoin::TxIn {
         previous_output: input.outpoint,
@@ -49,17 +54,19 @@ pub fn generate_default_tx_in(input: &Input) -> bitcoin::TxIn {
     }
 }
 
+/// Transaction input
 pub struct Input {
     pub outpoint: OutPoint,
     pub _amount: Amount,
 }
 
+/// Signer info
 pub struct SignerInfo {
-    pub secp: Secp256k1<All>,
-    pub _pk: PublicKey,
-    pub _sk: SecretKey,
-    pub keypair: Keypair,
-    pub address: Address,
+    secp: Secp256k1<All>,
+    _pk: PublicKey,
+    _sk: SecretKey,
+    keypair: Keypair,
+    address: Address,
 }
 
 impl Default for SignerInfo {
@@ -83,6 +90,7 @@ impl SignerInfo {
             address,
         }
     }
+
     pub fn new() -> Self {
         let rng = &mut OsRng;
         let secp: Secp256k1<All> = Secp256k1::new();
@@ -91,36 +99,13 @@ impl SignerInfo {
         Self::generate_signer_info(sk, secp)
     }
 
-    pub fn _load_from_hex(seckey_hex: String) -> Self {
-        let secp: Secp256k1<All> = Secp256k1::new();
-        let sk = SecretKey::from_str(&seckey_hex).unwrap();
-
-        Self::generate_signer_info(sk, secp)
-    }
-
-    pub fn _save(_: String) {}
-}
-
-impl SignerInfo {
-    pub fn _sign_ecdsa(&self, hash: SegwitV0Sighash, sign_type: EcdsaSighashType) -> Vec<u8> {
-        let msg = Message::from_digest_slice(&hash[..]).expect("should be SegwitV0Sighash");
-        let signature = self.secp.sign_ecdsa(&msg, &self._sk);
-        let mut vec = signature.serialize_der().to_vec();
-        vec.push(sign_type.to_u32() as u8);
-        vec
-    }
-
     pub fn sign_schnorr(&self, hash: TapSighash) -> Vec<u8> {
         let msg = Message::from_digest_slice(&hash[..]).expect("should be TapSighash");
         let signature = self.secp.sign_schnorr(&msg, &self.keypair);
         signature.serialize().to_vec()
     }
 
-    pub fn _get_address(&self) -> Address {
+    pub fn address(&self) -> Address {
         self.address.clone()
-    }
-
-    pub fn _get_pk(&self) -> Vec<u8> {
-        self._pk.to_bytes().clone()
     }
 }
