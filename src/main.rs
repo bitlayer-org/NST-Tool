@@ -182,6 +182,7 @@ fn main() {
                 "Transaction sent: {} by {}, this transaction is a non-standard transaction",
                 txid, args.rpc_name
             );
+            println!("\n ✅ the RPC {} passed the testing tool", args.rpc_name);
         }
         Err(e_) => {
             error!(
@@ -189,6 +190,10 @@ fn main() {
                 args.rpc_name,
                 e_,
                 tx.txid()
+            );
+            println!(
+                "\n ❌ the RPC {} didn't pass the testing tool",
+                args.rpc_name
             );
             std::process::exit(1);
         }
