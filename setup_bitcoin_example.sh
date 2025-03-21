@@ -1,5 +1,7 @@
 BITCOIN_SOURCE_URL="https://github.com/bitlayer-org/bitcoin.git"
 BITCOIN_SOURCE_BRANCH="nst_api"
+CURRENT_DIR=$(pwd)
+PID_FILE="$CURRENT_DIR/playground/pid_file"
 
 if [ -f "./playground/bin/bitcoind" ] && [ -f "./playground/bin/bitcoin-cli" ]; then
     echo "Bitcoin already built. Skip building."
@@ -27,12 +29,28 @@ fi
 data_dir="./playground/bitcoin_data"
 
 echo "Kill bitcoin process ..."
-pkill bitcoind
-pkill bitcoind
+if [ ! -f "$PID_FILE" ]; then
+echo "PID file not found. Daemon may not be running."
+else
+    # Read the PID from the PID file
+PID=$(cat "$PID_FILE")
+
+# Check if the process is running
+if ps -p "$PID" > /dev/null; then
+    # Stop the daemon
+    kill "$PID"
+    echo "Daemon stopped with PID: $PID"
+else
+    echo "Daemon with PID $PID not found."
+fi
+
+# Remove the PID file
+rm -f "$PID_FILE"
+fi
 
 echo "Start bitcoin ..."
 mkdir -p $data_dir 
-start_bitcoin_command="./playground/bin/bitcoind -datadir=$data_dir -server -listen=1 -regtest -fallbackfee=0.001 -rpcuser=admin -rpcpassword=admin -daemon"
+start_bitcoin_command="./playground/bin/bitcoind -datadir=$data_dir -server -listen=1 -regtest -fallbackfee=0.001 -rpcuser=admin -rpcpassword=admin -daemon -pid=$PID_FILE"
 echo "Execute $start_bitcoin_command"
 /bin/bash -c "$start_bitcoin_command"
 
