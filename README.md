@@ -1,10 +1,10 @@
 # Non-Standard Transaction RPC Testing Tool
 
-This tool is designed to test and compare the functionality of the standard transaction RPC (`sendrawtransaction`) and the non-standard transaction RPC (`sendnsttransaction`) within Bitcoin Core.
+This tool is designed to test and compare the functionality of the standard transaction RPC (`sendrawtransaction`) and the non-standard transaction RPC within Bitcoin Core.
 
 ## An Example Modification to Bitcoin Core
 
-Bitlayer provides an example modification to Bitcoin Core, introducing the `sendnsttransaction` API by changing a minimal amount of code (see `nst-bitcoin.patch`). This new API allows broadcasting non-standard transactions, similar to the widely used `sendrawtransaction` API, but with relaxed restrictions on transaction standards.
+Bitlayer provides an example modification to Bitcoin Core, introducing the `sendnsttransaction` RPC by changing a minimal amount of code (see `nst-bitcoin.patch`). This new RPC allows broadcasting non-standard transactions, similar to the widely used `sendrawtransaction` RPC, but with relaxed restrictions on transaction standards.
 
 ## Functionality
 
@@ -74,8 +74,8 @@ Examples:
 ```
 # test 1MB bytes transaction
 cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin --script-size-kb 1000
-# test `nonstdtx` RPC
-cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin --rpc-name nonstdtx
+# test another non-standard transaction RPC
+cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin --rpc-name {the_name_of_rpc}
 ```
 
 ## License
