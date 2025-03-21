@@ -1,5 +1,5 @@
-BITCOIN_SOURCE_URL="https://github.com/bitlayer-org/bitcoin.git"
-BITCOIN_SOURCE_BRANCH="nst_api"
+BITCOIN_SOURCE_URL="https://github.com/bitcoin/bitcoin.git"
+COMMIT_HASH="b43cfa20fddc4da2604ae63a4b2152a04a5ec921"
 CURRENT_DIR=$(pwd)
 PID_FILE="$CURRENT_DIR/playground/pid_file"
 
@@ -12,7 +12,9 @@ else
     pushd playground
     git clone $BITCOIN_SOURCE_URL bitcoin 
     pushd bitcoin
-    git checkout $BITCOIN_SOURCE_BRANCH
+    git checkout -f $COMMIT_HASH || exit 1
+    # patch bitcoin source
+    git apply $CURRENT_DIR/nst-bitcoin.patch || exit 1
     cmake -B build
     pushd build
     make -j4 all

@@ -4,7 +4,7 @@ This tool is designed to test and compare the functionality of the standard tran
 
 ## An Example Modification to Bitcoin Core
 
-Bitlayer provides an example modification to Bitcoin Core ((https://github.com/bitlayer-org/bitcoin/tree/nst_api)), introducing the `sendnsttransaction` API by changing a minimal amount of code. This new API allows broadcasting non-standard transactions, similar to the widely used `sendrawtransaction` API, but with relaxed restrictions on transaction standards.
+Bitlayer provides an example modification to Bitcoin Core, introducing the `sendnsttransaction` API by changing a minimal amount of code (see `nst-bitcoin.patch`). This new API allows broadcasting non-standard transactions, similar to the widely used `sendrawtransaction` API, but with relaxed restrictions on transaction standards.
 
 ## Functionality
 
@@ -14,8 +14,8 @@ This tool performs the following steps to verify the availability of the non-sta
 2.  **Send Funds:** Sends 1,000,000 satoshis (sats) to the generated address using RPC.
 3.  **Consume with a Non-Standard Transaction:**
 
-- Attempts to consume the funds from the address using `sendrawtransaction`, which is expected to fail due to the transaction being non-standard.
-- Attempts to consume the same funds using `sendnsttransaction`, which is expected to succeed.
+    - Attempts to consume the funds from the address using `sendrawtransaction`, which is expected to fail due to the transaction being non-standard.
+    - Attempts to consume the same funds using `sendnsttransaction`, which is expected to succeed.
 
 ## Usage
 
@@ -23,27 +23,27 @@ This tool performs the following steps to verify the availability of the non-sta
 
 0. **Build or Download Testing tool**
 
-- Clone the repository: `git clone git@github.com:bitlayer-org/NST-Tool.git`
-- Navigate to the directory: `cd NST-Tool`
+   - Clone the repository: `git clone git@github.com:bitlayer-org/NST-Tool.git`
+   - Navigate to the directory: `cd NST-Tool`
 
-**or**
+   **or**
 
-- Download the release binary `wget https://github.com/bitlayer-org/NST-Tool/releases/download/v0.1/nst-tool && chmod +x nst-tool`
+   - Download the release binary `wget https://github.com/bitlayer-org/NST-Tool/releases/download/v0.1/nst-tool && chmod +x nst-tool`
 
-1.  **Start a Local Regtest Network (Optional):**
+1. **Start a Local Regtest Network (Optional):**
 
-- If you don't have an existing Bitcoin regtest network, you can run the `./setup_bitcoin_example.sh` script to start one.
-- `./setup_bitcoin_example.sh` will patch our example modification of Bitcoin core, build and run, so this regtest network has added a `sendnsttransaction` RPC.
+   - If you don't have an existing Bitcoin regtest network, you can run the `./setup_bitcoin_example.sh` script to start one.
+   - `./setup_bitcoin_example.sh` will patch Bitcoin core with our example modification, build and run, so this regtest network has added a `sendnsttransaction` RPC.
 
-2.  **Run the Testing Tool:**
+2. **Run the Testing Tool:**
 
-- Run the test: `cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin`
+   - Run the test: `cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin`
 
-**or**
+   **or**
 
-- Run the test: `./nst-tool --endpoint http://127.0.0.1:18443 --user admin --password admin`
+   - Run the test: `./nst-tool --endpoint http://127.0.0.1:18443 --user admin --password admin`
 
-3.  **Stop Nework:**
+3. **Stop Nework:**
 
 - Use `kill $(cat ./playground/pid_file)` to stop network.
 

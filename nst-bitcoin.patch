@@ -1,0 +1,437 @@
+From dbbe9c2eae8553101de4753ad9ea30450b823703 Mon Sep 17 00:00:00 2001
+From: Andrew0ng <Andrew0ng@bitlayer.ltd>
+Date: Wed, 19 Mar 2025 19:35:36 +0800
+Subject: [PATCH] add sendnsttransaction api
+
+---
+ src/node/transaction.cpp | 92 ++++++++++++++++++++++++++++++++++++++++
+ src/node/transaction.h   | 19 +++++++++
+ src/rpc/mempool.cpp      | 63 +++++++++++++++++++++++++++
+ src/validation.cpp       | 67 ++++++++++++++++++++++++++---
+ src/validation.h         | 27 ++++++++++++
+ 5 files changed, 261 insertions(+), 7 deletions(-)
+
+diff --git a/src/node/transaction.cpp b/src/node/transaction.cpp
+index 666597391e..040f16f1fd 100644
+--- a/src/node/transaction.cpp
++++ b/src/node/transaction.cpp
+@@ -31,6 +31,98 @@ static TransactionError HandleATMPError(const TxValidationState& state, std::str
+     }
+ }
+ 
++TransactionError BroadcastNSTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback)
++{
++    // BroadcastTransaction can be called by RPC or by the wallet.
++    // chainman, mempool and peerman are initialized before the RPC server and wallet are started
++    // and reset after the RPC sever and wallet are stopped.
++    assert(node.chainman);
++    assert(node.mempool);
++    assert(node.peerman);
++
++    std::promise<void> promise;
++    Txid txid = tx->GetHash();
++    uint256 wtxid = tx->GetWitnessHash();
++    bool callback_set = false;
++
++    {
++        LOCK(cs_main);
++
++        // If the transaction is already confirmed in the chain, don't do anything
++        // and return early.
++        CCoinsViewCache &view = node.chainman->ActiveChainstate().CoinsTip();
++        for (size_t o = 0; o < tx->vout.size(); o++) {
++            const Coin& existingCoin = view.AccessCoin(COutPoint(txid, o));
++            // IsSpent doesn't mean the coin is spent, it means the output doesn't exist.
++            // So if the output does exist, then this transaction exists in the chain.
++            if (!existingCoin.IsSpent()) return TransactionError::ALREADY_IN_UTXO_SET;
++        }
++
++        if (auto mempool_tx = node.mempool->get(txid); mempool_tx) {
++            // There's already a transaction in the mempool with this txid. Don't
++            // try to submit this transaction to the mempool (since it'll be
++            // rejected as a TX_CONFLICT), but do attempt to reannounce the mempool
++            // transaction if relay=true.
++            //
++            // The mempool transaction may have the same or different witness (and
++            // wtxid) as this transaction. Use the mempool's wtxid for reannouncement.
++            wtxid = mempool_tx->GetWitnessHash();
++        } else {
++            // Transaction is not already in the mempool.
++            if (max_tx_fee > 0) {
++                // First, call ATMP with test_accept and check the fee. If ATMP
++                // fails here, return error immediately.
++                const MempoolAcceptResult result = node.chainman->ProcessNSTransaction(tx, /*test_accept=*/ true);
++                if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
++                    return HandleATMPError(result.m_state, err_string);
++                } else if (result.m_base_fees.value() > max_tx_fee) {
++                    return TransactionError::MAX_FEE_EXCEEDED;
++                }
++            }
++            // Try to submit the transaction to the mempool.
++            const MempoolAcceptResult result = node.chainman->ProcessNSTransaction(tx, /*test_accept=*/ false);
++            if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
++                return HandleATMPError(result.m_state, err_string);
++            }
++
++            // Transaction was accepted to the mempool.
++
++            if (relay) {
++                // the mempool tracks locally submitted transactions to make a
++                // best-effort of initial broadcast
++                node.mempool->AddUnbroadcastTx(txid);
++            }
++
++            if (wait_callback && node.validation_signals) {
++                // For transactions broadcast from outside the wallet, make sure
++                // that the wallet has been notified of the transaction before
++                // continuing.
++                //
++                // This prevents a race where a user might call sendrawtransaction
++                // with a transaction to/from their wallet, immediately call some
++                // wallet RPC, and get a stale result because callbacks have not
++                // yet been processed.
++                node.validation_signals->CallFunctionInValidationInterfaceQueue([&promise] {
++                    promise.set_value();
++                });
++                callback_set = true;
++            }
++        }
++    } // cs_main
++
++    if (callback_set) {
++        // Wait until Validation Interface clients have been notified of the
++        // transaction entering the mempool.
++        promise.get_future().wait();
++    }
++
++    if (relay) {
++        node.peerman->RelayTransaction(txid, wtxid);
++    }
++
++    return TransactionError::OK;
++}
++
+ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback)
+ {
+     // BroadcastTransaction can be called by RPC or by the wallet.
+diff --git a/src/node/transaction.h b/src/node/transaction.h
+index 5f524f4e28..31ebc7623e 100644
+--- a/src/node/transaction.h
++++ b/src/node/transaction.h
+@@ -51,6 +51,25 @@ static const CAmount DEFAULT_MAX_BURN_AMOUNT{0};
+  */
+ [[nodiscard]] TransactionError BroadcastTransaction(NodeContext& node, CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback);
+ 
++/**
++ * Submit a non-standard transaction to the mempool and (optionally) relay it to all P2P peers.
++ *
++ * Mempool submission can be synchronous (will await mempool entry notification
++ * over the CValidationInterface) or asynchronous (will submit and not wait for
++ * notification), depending on the value of wait_callback. wait_callback MUST
++ * NOT be set while cs_main, cs_mempool or cs_wallet are held to avoid
++ * deadlock.
++ *
++ * @param[in]  node reference to node context
++ * @param[in]  tx the transaction to broadcast
++ * @param[out] err_string reference to std::string to fill with error string if available
++ * @param[in]  max_tx_fee reject txs with fees higher than this (if 0, accept any fee)
++ * @param[in]  relay flag if both mempool insertion and p2p relay are requested
++ * @param[in]  wait_callback wait until callbacks have been processed to avoid stale result due to a sequentially RPC.
++ * return error
++ */
++[[nodiscard]] TransactionError BroadcastNSTransaction(NodeContext& node, CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback);
++
+ /**
+  * Return transaction with a given hash.
+  * If mempool is provided and block_index is not provided, check it first for the tx.
+diff --git a/src/rpc/mempool.cpp b/src/rpc/mempool.cpp
+index 2b883322aa..4fa3b33b0a 100644
+--- a/src/rpc/mempool.cpp
++++ b/src/rpc/mempool.cpp
+@@ -39,6 +39,67 @@ using node::NodeContext;
+ using node::TransactionError;
+ using util::ToString;
+ 
++static RPCHelpMan sendnsttransaction()
++{
++    return RPCHelpMan{
++        "sendnsttransaction",
++        "\nSubmit a non-standard raw transaction (serialized, hex-encoded) to local node and network.\n"
++        "\nThe transaction will be sent unconditionally to all peers, so using sendnsttransaction\n"
++        "for manual rebroadcast may degrade privacy by leaking the transaction's origin, as\n"
++        "nodes will normally not rebroadcast non-wallet transactions already in their mempool.\n"
++        "\nA specific exception, RPC_TRANSACTION_ALREADY_IN_UTXO_SET, may throw if the transaction cannot be added to the mempool.\n"
++        "\nRelated RPCs: createrawtransaction, signrawtransactionwithkey\n",
++        {
++            {"hexstring", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hex string of the raw transaction"},
++            {"maxfeerate", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(DEFAULT_MAX_RAW_TX_FEE_RATE.GetFeePerK())},
++             "Reject transactions whose fee rate is higher than the specified value, expressed in " + CURRENCY_UNIT +
++                 "/kvB.\nFee rates larger than 1BTC/kvB are rejected.\nSet to 0 to accept any fee rate."},
++            {"maxburnamount", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(DEFAULT_MAX_BURN_AMOUNT)},
++             "Reject transactions with provably unspendable outputs (e.g. 'datacarrier' outputs that use the OP_RETURN opcode) greater than the specified value, expressed in " + CURRENCY_UNIT + ".\n"
++                                                                                                                                                                                                  "If burning funds through unspendable outputs is desired, increase this value.\n"
++                                                                                                                                                                                                  "This check is based on heuristics and does not guarantee spendability of outputs.\n"},
++        },
++        RPCResult{
++            RPCResult::Type::STR_HEX, "", "The transaction hash in hex"},
++        RPCExamples{
++            "\nCreate a transaction\n" + HelpExampleCli("createrawtransaction", "\"[{\\\"txid\\\" : \\\"mytxid\\\",\\\"vout\\\":0}]\" \"{\\\"myaddress\\\":0.01}\"") +
++            "Sign the transaction, and get back the hex\n" + HelpExampleCli("signrawtransactionwithwallet", "\"myhex\"") +
++            "\nSend the transaction (signed hex)\n" + HelpExampleCli("sendnsttransaction", "\"signedhex\"") +
++            "\nAs a JSON-RPC call\n" + HelpExampleRpc("sendnsttransaction", "\"signedhex\"")},
++        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
++            const CAmount max_burn_amount = request.params[2].isNull() ? 0 : AmountFromValue(request.params[2]);
++
++            CMutableTransaction mtx;
++            if (!DecodeHexTx(mtx, request.params[0].get_str())) {
++                throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed. Make sure the tx has at least one input.");
++            }
++
++            for (const auto& out : mtx.vout) {
++                if ((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount) {
++                    throw JSONRPCTransactionError(TransactionError::MAX_BURN_EXCEEDED);
++                }
++            }
++
++            CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
++
++            const CFeeRate max_raw_tx_fee_rate{ParseFeeRate(self.Arg<UniValue>("maxfeerate"))};
++
++            int64_t virtual_size = GetVirtualTransactionSize(*tx);
++            CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size);
++
++            std::string err_string;
++            AssertLockNotHeld(cs_main);
++            NodeContext& node = EnsureAnyNodeContext(request.context);
++            const TransactionError err = BroadcastNSTransaction(node, tx, err_string, max_raw_tx_fee, /*relay=*/true, /*wait_callback=*/true);
++            if (TransactionError::OK != err) {
++                throw JSONRPCTransactionError(err, err_string);
++            }
++
++            return tx->GetHash().GetHex();
++        },
++    };
++}
++
+ static RPCHelpMan sendrawtransaction()
+ {
+     return RPCHelpMan{"sendrawtransaction",
+@@ -1128,6 +1189,8 @@ void RegisterMempoolRPCCommands(CRPCTable& t)
+     static const CRPCCommand commands[]{
+         {"rawtransactions", &sendrawtransaction},
+         {"rawtransactions", &testmempoolaccept},
++        {"sendnsttransaction", &sendnsttransaction},
++        {"sendnsttransaction", &testmempoolaccept},
+         {"blockchain", &getmempoolancestors},
+         {"blockchain", &getmempooldescendants},
+         {"blockchain", &getmempoolentry},
+diff --git a/src/validation.cpp b/src/validation.cpp
+index bf370d171a..e265776886 100644
+--- a/src/validation.cpp
++++ b/src/validation.cpp
+@@ -485,10 +485,13 @@ public:
+         /** Whether CPFP carveout and RBF carveout are granted. */
+         const bool m_allow_carveouts;
+ 
++        /** Allow non-standard transaction **/
++        const bool m_allow_non_standard_tx;
++
+         /** Parameters for single transaction mempool validation. */
+         static ATMPArgs SingleAccept(const CChainParams& chainparams, int64_t accept_time,
+                                      bool bypass_limits, std::vector<COutPoint>& coins_to_uncache,
+-                                     bool test_accept) {
++                                     bool test_accept, bool allow_non_standard_tx) {
+             return ATMPArgs{/* m_chainparams */ chainparams,
+                             /* m_accept_time */ accept_time,
+                             /* m_bypass_limits */ bypass_limits,
+@@ -500,6 +503,7 @@ public:
+                             /* m_package_feerates */ false,
+                             /* m_client_maxfeerate */ {}, // checked by caller
+                             /* m_allow_carveouts */ true,
++                            /* m_allow_non_standard_tx */ allow_non_standard_tx,
+             };
+         }
+ 
+@@ -517,6 +521,7 @@ public:
+                             /* m_package_feerates */ false,
+                             /* m_client_maxfeerate */ {}, // checked by caller
+                             /* m_allow_carveouts */ false,
++                            /* m_allow_non_standard_tx */ false,
+             };
+         }
+ 
+@@ -534,6 +539,7 @@ public:
+                             /* m_package_feerates */ true,
+                             /* m_client_maxfeerate */ client_maxfeerate,
+                             /* m_allow_carveouts */ false,
++                            /* m_allow_non_standard_tx */ false,
+             };
+         }
+ 
+@@ -550,6 +556,7 @@ public:
+                             /* m_package_feerates */ false, // only 1 transaction
+                             /* m_client_maxfeerate */ package_args.m_client_maxfeerate,
+                             /* m_allow_carveouts */ false,
++                            /* m_allow_non_standard_tx */ false,
+             };
+         }
+ 
+@@ -566,7 +573,8 @@ public:
+                  bool package_submission,
+                  bool package_feerates,
+                  std::optional<CFeeRate> client_maxfeerate,
+-                 bool allow_carveouts)
++                 bool allow_carveouts,
++                 bool allow_non_standard_tx)
+             : m_chainparams{chainparams},
+               m_accept_time{accept_time},
+               m_bypass_limits{bypass_limits},
+@@ -577,7 +585,8 @@ public:
+               m_package_submission{package_submission},
+               m_package_feerates{package_feerates},
+               m_client_maxfeerate{client_maxfeerate},
+-              m_allow_carveouts{allow_carveouts}
++              m_allow_carveouts{allow_carveouts},
++              m_allow_non_standard_tx{allow_non_standard_tx}
+         {
+             // If we are using package feerates, we must be doing package submission.
+             // It also means carveouts and sibling eviction are not permitted.
+@@ -790,7 +799,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
+ 
+     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
+     std::string reason;
+-    if (m_pool.m_opts.require_standard && !IsStandardTx(tx, m_pool.m_opts.max_datacarrier_bytes, m_pool.m_opts.permit_bare_multisig, m_pool.m_opts.dust_relay_feerate, reason)) {
++    if (!args.m_allow_non_standard_tx && m_pool.m_opts.require_standard && !IsStandardTx(tx, m_pool.m_opts.max_datacarrier_bytes, m_pool.m_opts.permit_bare_multisig, m_pool.m_opts.dust_relay_feerate, reason)) {
+         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, reason);
+     }
+ 
+@@ -878,12 +887,12 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
+         return false; // state filled in by CheckTxInputs
+     }
+ 
+-    if (m_pool.m_opts.require_standard && !AreInputsStandard(tx, m_view)) {
++    if (!args.m_allow_non_standard_tx && m_pool.m_opts.require_standard && !AreInputsStandard(tx, m_view)) {
+         return state.Invalid(TxValidationResult::TX_INPUTS_NOT_STANDARD, "bad-txns-nonstandard-inputs");
+     }
+ 
+     // Check for non-standard witnesses.
+-    if (tx.HasWitness() && m_pool.m_opts.require_standard && !IsWitnessStandard(tx, m_view)) {
++    if (!args.m_allow_non_standard_tx && tx.HasWitness() && m_pool.m_opts.require_standard && !IsWitnessStandard(tx, m_view)) {
+         return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "bad-witness-nonstandard");
+     }
+ 
+@@ -1875,6 +1884,36 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptPackage(const Package& package,
+ 
+ } // anon namespace
+ 
++MempoolAcceptResult AcceptNSTToMemoryPool(Chainstate& active_chainstate, const CTransactionRef& tx,
++    int64_t accept_time, bool bypass_limits, bool test_accept)
++{
++    AssertLockHeld(::cs_main);
++    const CChainParams& chainparams{active_chainstate.m_chainman.GetParams()};
++    assert(active_chainstate.GetMempool() != nullptr);
++    CTxMemPool& pool{*active_chainstate.GetMempool()};
++
++    std::vector<COutPoint> coins_to_uncache;
++    auto args = MemPoolAccept::ATMPArgs::SingleAccept(chainparams, accept_time, bypass_limits, coins_to_uncache, test_accept, true);
++    MempoolAcceptResult result = MemPoolAccept(pool, active_chainstate).AcceptSingleTransaction(tx, args);
++    if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
++    // Remove coins that were not present in the coins cache before calling
++    // AcceptSingleTransaction(); this is to prevent memory DoS in case we receive a large
++    // number of invalid transactions that attempt to overrun the in-memory coins cache
++    // (`CCoinsViewCache::cacheCoins`).
++
++    for (const COutPoint& hashTx : coins_to_uncache)
++        active_chainstate.CoinsTip().Uncache(hashTx);
++        TRACEPOINT(mempool, rejected,
++        tx->GetHash().data(),
++        result.m_state.GetRejectReason().c_str()
++        );
++    }
++    // After we've (potentially) uncached entries, ensure our coins cache is still within its size limits
++    BlockValidationState state_dummy;
++    active_chainstate.FlushStateToDisk(state_dummy, FlushStateMode::PERIODIC);
++    return result;
++}
++
+ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTransactionRef& tx,
+                                        int64_t accept_time, bool bypass_limits, bool test_accept)
+ {
+@@ -1884,7 +1923,7 @@ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTra
+     CTxMemPool& pool{*active_chainstate.GetMempool()};
+ 
+     std::vector<COutPoint> coins_to_uncache;
+-    auto args = MemPoolAccept::ATMPArgs::SingleAccept(chainparams, accept_time, bypass_limits, coins_to_uncache, test_accept);
++    auto args = MemPoolAccept::ATMPArgs::SingleAccept(chainparams, accept_time, bypass_limits, coins_to_uncache, test_accept, false);
+     MempoolAcceptResult result = MemPoolAccept(pool, active_chainstate).AcceptSingleTransaction(tx, args);
+     if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
+         // Remove coins that were not present in the coins cache before calling
+@@ -4627,6 +4666,20 @@ bool ChainstateManager::ProcessNewBlock(const std::shared_ptr<const CBlock>& blo
+     return true;
+ }
+ 
++MempoolAcceptResult ChainstateManager::ProcessNSTransaction(const CTransactionRef& tx, bool test_accept)
++{
++    AssertLockHeld(cs_main);
++    Chainstate& active_chainstate = ActiveChainstate();
++    if (!active_chainstate.GetMempool()) {
++        TxValidationState state;
++        state.Invalid(TxValidationResult::TX_NO_MEMPOOL, "no-mempool");
++        return MempoolAcceptResult::Failure(state);
++    }
++    auto result = AcceptNSTToMemoryPool(active_chainstate, tx, GetTime(), /*bypass_limits=*/ false, test_accept);
++    active_chainstate.GetMempool()->check(active_chainstate.CoinsTip(), active_chainstate.m_chain.Height() + 1);
++    return result;
++}
++
+ MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef& tx, bool test_accept)
+ {
+     AssertLockHeld(cs_main);
+diff --git a/src/validation.h b/src/validation.h
+index f6cbee28fc..948d39c023 100644
+--- a/src/validation.h
++++ b/src/validation.h
+@@ -249,6 +249,24 @@ struct PackageMempoolAcceptResult
+         : m_tx_results{ {wtxid, result} } {}
+ };
+ 
++/**
++ * Try to add a non-standard transaction to the mempool. This is an internal function and is exposed only for testing.
++ * Client code should use ChainstateManager::ProcessTransaction()
++ *
++ * @param[in]  active_chainstate  Reference to the active chainstate.
++ * @param[in]  tx                 The transaction to submit for mempool acceptance.
++ * @param[in]  accept_time        The timestamp for adding the transaction to the mempool.
++ *                                It is also used to determine when the entry expires.
++ * @param[in]  bypass_limits      When true, don't enforce mempool fee and capacity limits,
++ *                                and set entry_sequence to zero.
++ * @param[in]  test_accept        When true, run validation checks but don't submit to mempool.
++ *
++ * @returns a MempoolAcceptResult indicating whether the transaction was accepted/rejected with reason.
++ */
++MempoolAcceptResult AcceptNSTToMemoryPool(Chainstate& active_chainstate, const CTransactionRef& tx,
++                                       int64_t accept_time, bool bypass_limits, bool test_accept)
++    EXCLUSIVE_LOCKS_REQUIRED(cs_main);
++
+ /**
+  * Try to add a transaction to the mempool. This is an internal function and is exposed only for testing.
+  * Client code should use ChainstateManager::ProcessTransaction()
+@@ -1244,6 +1262,15 @@ public:
+ 
+     void ReceivedBlockTransactions(const CBlock& block, CBlockIndex* pindexNew, const FlatFilePos& pos) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+ 
++    /**
++     * Try to add a non-standard transaction to the memory pool.
++     *
++     * @param[in]  tx              The transaction to submit for mempool acceptance.
++     * @param[in]  test_accept     When true, run validation checks but don't submit to mempool.
++     */
++    [[nodiscard]] MempoolAcceptResult ProcessNSTransaction(const CTransactionRef& tx, bool test_accept=false)
++        EXCLUSIVE_LOCKS_REQUIRED(cs_main);
++
+     /**
+      * Try to add a transaction to the memory pool.
+      *
+-- 
+2.39.5 (Apple Git-154)
+
