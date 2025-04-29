@@ -52,7 +52,7 @@ fi
 
 echo "Start bitcoin ..."
 mkdir -p $data_dir 
-start_bitcoin_command="./playground/bin/bitcoind -datadir=$data_dir -server -listen=1 -regtest -fallbackfee=0.001 -rpcuser=admin -rpcpassword=admin -daemon -pid=$PID_FILE"
+start_bitcoin_command="./playground/bin/bitcoind -datadir=$data_dir -server -listen=1 -regtest -fallbackfee=0.001 -rpcuser=admin -rpcpassword=admin -daemon -pid=$PID_FILE -txindex=1"
 echo "Execute $start_bitcoin_command"
 /bin/bash -c "$start_bitcoin_command"
 

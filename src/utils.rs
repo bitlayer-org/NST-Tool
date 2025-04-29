@@ -1,7 +1,6 @@
 use bitcoin::{
     blockdata::transaction::OutPoint,
     key::{rand::rngs::OsRng, Keypair, PrivateKey, PublicKey},
-    network,
     script::ScriptBuf,
     secp256k1::{All, Message, Secp256k1, SecretKey, XOnlyPublicKey},
     sighash::TapSighash,

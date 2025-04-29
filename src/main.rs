@@ -12,15 +12,12 @@ use bitcoin::{
     Network::*,
     TapLeafHash,
 };
-use bitcoincore_rpc::{
-    jsonrpc::{self, simple_http},
-    Auth, Client, RawTx as _, RpcApi,
-};
+use bitcoincore_rpc::{Auth, Client, RawTx as _, RpcApi};
 use clap::Parser;
 use log::{error, info, warn, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::io::Write;
-use std::{str::FromStr, time::Duration};
+use std::str::FromStr;
 use utils::*;
 
 #[derive(Parser, Debug)]
