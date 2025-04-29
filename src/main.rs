@@ -8,7 +8,9 @@ use bitcoin::{
     },
     sighash::SighashCache,
     taproot::LeafVersion,
-    Amount, TapLeafHash,
+    Amount,
+    Network::*,
+    TapLeafHash,
 };
 use bitcoincore_rpc::{
     jsonrpc::{self, simple_http},
@@ -17,7 +19,8 @@ use bitcoincore_rpc::{
 use clap::Parser;
 use log::{error, info, warn, LevelFilter};
 use simple_logger::SimpleLogger;
-use std::time::Duration;
+use std::io::Write;
+use std::{str::FromStr, time::Duration};
 use utils::*;
 
 #[derive(Parser, Debug)]
@@ -35,6 +38,9 @@ struct Args {
     #[arg(short, long)]
     password: String,
 
+    #[arg(short, long, default_value_t = Regtest)]
+    network: bitcoin::Network,
+
     /// Script size in kilobytes (e.g., 500 for 500KB)
     #[arg(short, long, default_value_t = 500)]
     script_size_kb: u64,
@@ -42,6 +48,18 @@ struct Args {
     /// Name of Bitcoin RPC
     #[arg(short, long, default_value = "sendnsttransaction")]
     rpc_name: String,
+
+    /// Dry run
+    #[arg(short, long, default_value = "false")]
+    dry_run: bool,
+
+    /// Deposit Txid (only use when dry run is enabled)
+    #[arg(short, long)]
+    txid: Option<String>,
+
+    // Deposit Vout (only use when dry run is enabled)
+    #[arg(short, long)]
+    vout: Option<u32>,
 }
 
 fn main() {
@@ -67,7 +85,7 @@ fn main() {
     .unwrap();
 
     let amount = 10000000 as u64;
-    let alice = SignerInfo::new();
+    let alice = SignerInfo::new(args.network);
 
     // generate a script with the given size
     let mut script = Builder::new();
@@ -80,31 +98,40 @@ fn main() {
 
     let script_bytes = script.into_script();
     info!("the byte size of script {}", script_bytes.as_bytes().len());
-    let tapinfo = create_taproot_address(vec![script_bytes]);
+    let tapinfo = create_taproot_address(vec![script_bytes], args.network);
+    info!("deposit addresss: {:?}", tapinfo.address);
 
-    // send to the taproot address
-    let txid = rpc
-        .send_to_address(
-            &tapinfo.address,
-            Amount::from_sat(amount),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .expect("send tx failed");
-
-    let tx_result = rpc.get_transaction(&txid, None).expect("error");
-    info!("txid of deposit transaction {:?}", tx_result.details);
+    // check if dry run is enabled
+    let (txid, vout) = if args.dry_run {
+        info!("Dry run enabled, not sending transaction.");
+        if args.txid.is_none() || args.vout.is_none() {
+            error!("Please provide deposit txid and vout for the dry run.");
+            std::process::exit(1);
+        }
+        let txid = bitcoin::Txid::from_str(&args.txid.unwrap()).expect("invalid txid");
+        (txid, args.vout.unwrap())
+    } else {
+        // send to the taproot address
+        let txid = rpc
+            .send_to_address(
+                &tapinfo.address,
+                Amount::from_sat(amount),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("send tx failed");
+        let tx_result = rpc.get_transaction(&txid, None).expect("error");
+        info!("txid of deposit transaction {:?}", tx_result.details);
+        (txid, tx_result.details[0].vout)
+    };
 
     // create a transaction to spend the deposit
     let input = Input {
-        outpoint: OutPoint {
-            txid,
-            vout: tx_result.details[0].vout,
-        },
+        outpoint: OutPoint { txid, vout: vout },
         _amount: Amount::from_sat(amount),
     };
 
@@ -150,22 +177,25 @@ fn main() {
     tx.input[0].witness.push(tapinfo.scripts[0].clone());
     tx.input[0].witness.push(&spend_control_block.serialize());
 
-    // send the transaction
-    let mut builder = simple_http::Builder::new()
-        .url(url)
-        .expect("invalid rpc info");
-    builder = builder
-        .auth(user, Some(password))
-        .timeout(Duration::from_secs(100));
-    let transport = jsonrpc::Client::with_transport(builder.build());
-    let btc_client = Client::from_jsonrpc(transport);
+    if args.dry_run {
+        info!("Dry run enabled, not sending transaction.");
+        info!("write raw of tx {} to raw_tx.txt", tx.txid());
+        write!(
+            std::fs::File::create("raw_tx.txt").unwrap(),
+            "{}",
+            tx.raw_hex()
+        )
+        .expect("write raw tx failed");
+        return;
+    }
 
+    // send the transaction
     let block_count = 1;
-    let _ = btc_client.generate_to_address(block_count as u64, &alice.address());
+    let _ = rpc.generate_to_address(block_count as u64, &alice.address());
     info!("send tx {}", tx.txid());
 
     // Send the transaction using the `sendrawtransaction` RPC call.
-    let txid_res = btc_client.call::<bitcoin::Txid>("sendrawtransaction", &[tx.raw_hex().into()]);
+    let txid_res = rpc.call::<bitcoin::Txid>("sendrawtransaction", &[tx.raw_hex().into()]);
     match txid_res {
         Ok(txid) => {
             warn!("Transaction sent: {} by sendrawtransaction, this transaction is not a non-standard transaction", txid);
@@ -180,7 +210,7 @@ fn main() {
     }
 
     // Send the transaction using the `sendnsttransaction` RPC call.
-    let txid_res = btc_client.call::<bitcoin::Txid>(&args.rpc_name, &[tx.raw_hex().into()]);
+    let txid_res = rpc.call::<bitcoin::Txid>(&args.rpc_name, &[tx.raw_hex().into()]);
     match txid_res {
         Ok(txid) => {
             info!(

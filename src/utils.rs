@@ -1,16 +1,15 @@
 use bitcoin::{
     blockdata::transaction::OutPoint,
     key::{rand::rngs::OsRng, Keypair, PrivateKey, PublicKey},
+    network,
     script::ScriptBuf,
     secp256k1::{All, Message, Secp256k1, SecretKey, XOnlyPublicKey},
     sighash::TapSighash,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount,
 };
+use bitcoincore_rpc::jsonrpc::serde_json;
 use std::str::FromStr;
-
-/// Bitcoin network
-pub const NETWORK: bitcoin::Network = bitcoin::Network::Regtest;
 
 /// Taproot information
 #[derive(Clone)]
@@ -21,12 +20,15 @@ pub struct TaprootInfo {
 }
 
 /// Create a taproot address
-pub fn create_taproot_address(scripts: Vec<ScriptBuf>) -> TaprootInfo {
-    build_taptree_with_script(scripts)
+pub fn create_taproot_address(scripts: Vec<ScriptBuf>, network: bitcoin::Network) -> TaprootInfo {
+    build_taptree_with_script(scripts, network)
 }
 
 /// Build a taproot tree with a script
-pub fn build_taptree_with_script(scripts: Vec<ScriptBuf>) -> TaprootInfo {
+pub fn build_taptree_with_script(
+    scripts: Vec<ScriptBuf>,
+    network: bitcoin::Network,
+) -> TaprootInfo {
     let internal_key = XOnlyPublicKey::from_str(
         "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
     )
@@ -36,7 +38,7 @@ pub fn build_taptree_with_script(scripts: Vec<ScriptBuf>) -> TaprootInfo {
         .expect("unable to add leaf")
         .finalize(&Secp256k1::new(), internal_key)
         .expect("unable to finalize");
-    let address = Address::p2tr_tweaked(taproot_spend_info.output_key(), NETWORK);
+    let address = Address::p2tr_tweaked(taproot_spend_info.output_key(), network);
     TaprootInfo {
         address: address.clone(),
         scripts,
@@ -69,19 +71,22 @@ pub struct SignerInfo {
     address: Address,
 }
 
-impl Default for SignerInfo {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl SignerInfo {
-    fn generate_signer_info(sk: SecretKey, secp: Secp256k1<All>) -> Self {
-        let private_key = PrivateKey::new(sk, bitcoin::Network::Regtest);
+    fn generate_signer_info(
+        sk: SecretKey,
+        secp: Secp256k1<All>,
+        network: bitcoin::Network,
+    ) -> Self {
+        let private_key = PrivateKey::new(sk, network);
+        println!(
+            "generate private key: {:?}, network: {:?}",
+            serde_json::to_string(&private_key).unwrap(),
+            network
+        );
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (_, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let pubkey = PublicKey::from_private_key(&secp, &private_key);
-        let address = Address::p2wpkh(&pubkey, bitcoin::Network::Regtest).unwrap();
+        let address = Address::p2wpkh(&pubkey, network).unwrap();
         SignerInfo {
             _pk: private_key.public_key(&secp),
             secp,
@@ -91,12 +96,12 @@ impl SignerInfo {
         }
     }
 
-    pub fn new() -> Self {
+    pub fn new(network: bitcoin::Network) -> Self {
         let rng = &mut OsRng;
         let secp: Secp256k1<All> = Secp256k1::new();
         let (sk, _) = secp.generate_keypair(rng);
 
-        Self::generate_signer_info(sk, secp)
+        Self::generate_signer_info(sk, secp, network)
     }
 
     pub fn sign_schnorr(&self, hash: TapSighash) -> Vec<u8> {
