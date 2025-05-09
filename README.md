@@ -78,6 +78,15 @@ cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin --s
 cargo run -- --endpoint http://127.0.0.1:18443 --user admin --password admin --rpc-name {the_name_of_rpc}
 ```
 
+### Fee Calculator
+
+Run `fee_calculator.py` to get a reasonable fee where `txid` is transaction id of NST and `r` is the multiplied rate.
+
+```python
+Usage: python3 fee_calculator.py <txid> <r>
+Example: python3 fee_calculator.py 2dcbac5acc30028260dad6edbf574c3b98c4bbbb09182cfe8b7efd4ce8d90c9a 3
+```
+
 ## License
 
 This repository is licensed under the Apache 2.0 license.
